@@ -27,7 +27,7 @@ export function Header() {
     return (
         <header className={classes.header}>
             <Container size="md" className={classes.inner}>
-                <Flex justify={"space-between"} align="center" gap="6rem" w={"100%"}>
+                <Flex justify={"space-between"} align="center" gap={{ base: "1rem", sm: "6rem" }} w={"100%"}>
                     <span>Prêt immo</span>
                     <Group gap={5} visibleFrom="xs">
                         {items}

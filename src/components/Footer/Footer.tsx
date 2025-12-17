@@ -13,9 +13,26 @@ export function Footer() {
     return (
         <div className={classes.footer}>
             <Container className={classes.inner}>
-                <Flex justify={"space-between"} align="center" gap="6rem" w={"100%"}>
+                <Flex
+                    direction={{
+                        base: "column",
+                        sm: "row",
+                    }}
+                    justify={"space-between"}
+                    align="center"
+                    gap={{ base: "1rem", sm: "6rem" }}
+                    w={"100%"}
+                >
                     <span>Prêt immo</span>
-                    <Text size="sm" c="dimmed" w={"400px"}>
+                    <Text
+                        size="sm"
+                        c="dimmed"
+                        w={{
+                            base: "100%",
+                            sm: "400px",
+                        }}
+                        ta={"center"}
+                    >
                         Petite application (un peu vibe codée) pour calculer la capacité d'emprunt immobilier. A but éducatif uniquement, ne pas utiliser pour
                         des demandes réelles.
                     </Text>

@@ -1,4 +1,4 @@
-import { Accordion, Box, Button, Container, Flex, Group, NumberInput, Radio, Slider, Table, Text, TextInput } from "@mantine/core";
+import { Accordion, Box, Button, Container, Flex, Group, NumberInput, Radio, Slider, Table, Text, TextInput, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useEffect, useMemo, useState } from "react";
 
@@ -128,7 +128,6 @@ const buildAmortizationTable = (maxLoanPrincipal: number, maxInstallment: number
     return table;
 };
 
-// Component
 export default function LoanCapacity() {
     const [rateMode, setRateMode] = useState<RateMode>("single");
 
@@ -233,8 +232,11 @@ export default function LoanCapacity() {
     return (
         <Container size={"md"}>
             <Flex direction={"column"} gap="2rem" align={"center"}>
-                <h1>Calculer votre capacité d'emprunt</h1>
-                <Box w={"600"}>
+                <Title order={1} ta={"center"} my="lg">
+                    Calculer votre capacité d'emprunt
+                </Title>
+
+                <Box w={{ base: "100%", sm: "90%", md: 600 }} px={{ base: "md", sm: 0 }}>
                     <form onSubmit={form.onSubmit((values) => console.log(values))}>
                         <Group justify="flex-start" mb={8} grow>
                             <TextInput
@@ -335,7 +337,7 @@ export default function LoanCapacity() {
                 </Box>
 
                 {maxLoanPrincipal > 0 && (
-                    <Box w={"600"}>
+                    <Box w={{ base: "100%", sm: "90%", md: 600 }} px={{ base: "md", sm: 0 }}>
                         <h2>Résultats</h2>
                         <p>
                             <strong>Mensualité maximale :</strong> {formatCurrency(maxMonthlyInstallment)}
@@ -365,30 +367,32 @@ export default function LoanCapacity() {
                                     <strong>Tableau d'amortissement :</strong>
                                 </Accordion.Control>
                                 <Accordion.Panel>
-                                    <Table striped highlightOnHover withTableBorder withColumnBorders>
-                                        <Table.Thead>
-                                            <Table.Tr>
-                                                <Table.Th>Mois</Table.Th>
-                                                <Table.Th>Capital initial</Table.Th>
-                                                <Table.Th>Intérêts</Table.Th>
-                                                <Table.Th>Amortissement</Table.Th>
-                                                <Table.Th>Mensualité</Table.Th>
-                                                <Table.Th>Capital restant dû</Table.Th>
-                                            </Table.Tr>
-                                        </Table.Thead>
-                                        <Table.Tbody>
-                                            {amortizationTable.map((row) => (
-                                                <Table.Tr key={row.month}>
-                                                    <Table.Td align="right">{row.month}</Table.Td>
-                                                    <Table.Td align="right">{formatCurrency(row.capitalBefore)}</Table.Td>
-                                                    <Table.Td align="right">{formatCurrency(row.interest)}</Table.Td>
-                                                    <Table.Td align="right">{formatCurrency(row.amortization)}</Table.Td>
-                                                    <Table.Td align="right">{formatCurrency(row.installment)}</Table.Td>
-                                                    <Table.Td align="right">{formatCurrency(row.capitalAfter)}</Table.Td>
+                                    <Table.ScrollContainer minWidth={500}>
+                                        <Table striped highlightOnHover withTableBorder withColumnBorders w={"100%"}>
+                                            <Table.Thead>
+                                                <Table.Tr>
+                                                    <Table.Th>Mois</Table.Th>
+                                                    <Table.Th>Capital initial</Table.Th>
+                                                    <Table.Th>Intérêts</Table.Th>
+                                                    <Table.Th>Amortissement</Table.Th>
+                                                    <Table.Th>Mensualité</Table.Th>
+                                                    <Table.Th>Capital restant dû</Table.Th>
                                                 </Table.Tr>
-                                            ))}
-                                        </Table.Tbody>
-                                    </Table>
+                                            </Table.Thead>
+                                            <Table.Tbody>
+                                                {amortizationTable.map((row) => (
+                                                    <Table.Tr key={row.month}>
+                                                        <Table.Td align="right">{row.month}</Table.Td>
+                                                        <Table.Td align="right">{formatCurrency(row.capitalBefore)}</Table.Td>
+                                                        <Table.Td align="right">{formatCurrency(row.interest)}</Table.Td>
+                                                        <Table.Td align="right">{formatCurrency(row.amortization)}</Table.Td>
+                                                        <Table.Td align="right">{formatCurrency(row.installment)}</Table.Td>
+                                                        <Table.Td align="right">{formatCurrency(row.capitalAfter)}</Table.Td>
+                                                    </Table.Tr>
+                                                ))}
+                                            </Table.Tbody>
+                                        </Table>
+                                    </Table.ScrollContainer>
                                 </Accordion.Panel>
                             </Accordion.Item>
                         </Accordion>
