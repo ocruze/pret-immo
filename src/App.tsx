@@ -1,16 +1,18 @@
 import { Box, ColorSchemeScript, createTheme, MantineProvider, type MantineColorsTuple } from "@mantine/core";
+
+import { Footer } from "./components/Footer/Footer";
 import { Header } from "./components/Header/Header";
 import LoanCapacity from "./components/LoanCapacity/LoanCapacity";
 
 import "@mantine/core/styles.css";
-import { Footer } from "./components/Footer/Footer";
 
-const myColor: MantineColorsTuple = ["#eceaff", "#d4d1ff", "#a59ffe", "#736afa", "#3c2ff7", "#2e21f6", "#1f11f7", "#1006dd", "#0704c6", "#0000af"];
+const myColor: MantineColorsTuple = ["#e5f3ff", "#cde2ff", "#9ac2ff", "#64a0ff", "#3884fe", "#1d72fe", "#0063ff", "#0058e4", "#004ecd", "#0043b5"];
 
 const theme = createTheme({
     colors: {
         myColor,
     },
+    primaryColor: "myColor",
 });
 
 function App() {

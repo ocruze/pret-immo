@@ -1,4 +1,4 @@
-import { Burger, Container, Flex, Group } from "@mantine/core";
+import { Burger, Button, Container, Flex, Group } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useState } from "react";
 
@@ -7,13 +7,15 @@ import classes from "./Header.module.css";
 
 export function Header() {
     const [opened, { toggle }] = useDisclosure(false);
-    const [active, setActive] = useState(links[0].link);
+    const [active, setActive] = useState<(typeof links)[number]["link"]>(links[0].link);
 
     const items = links.map((link) => (
-        <a
+        <Button
             key={link.label}
+            component="a"
             href={link.link}
-            className={classes.link}
+            // className={classes.link}
+            variant={active === link.link ? "filled" : "subtle"}
             data-active={active === link.link || undefined}
             onClick={(event) => {
                 event.preventDefault();
@@ -21,7 +23,7 @@ export function Header() {
             }}
         >
             {link.label}
-        </a>
+        </Button>
     ));
 
     return (

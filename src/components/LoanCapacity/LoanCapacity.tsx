@@ -1,10 +1,10 @@
-import { Accordion, Box, Button, Container, Flex, Group, NumberInput, Radio, Slider, Table, Text, TextInput, Title } from "@mantine/core";
+import { Accordion, Box, Button, Container, Flex, Group, InputLabel, NumberInput, Radio, Slider, Table, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useEffect, useMemo, useState } from "react";
+import { zod4Resolver } from "mantine-form-zod-resolver";
+import { useEffect, useMemo } from "react";
+import { z } from "zod/v4";
 
 // Types
-type RatePeriod = { years: number; rate: number };
-
 type AmortizationRow = {
     month: number;
     capitalBefore: number;
@@ -14,12 +14,75 @@ type AmortizationRow = {
     capitalAfter: number;
 };
 
-type RateMode = "single" | "multi";
+type InputMode = "income" | "installment";
 
 // Constants
 const MAX_LOAN_DURATION_YEARS = 25;
 const DEBT_TO_INCOME_RATIO = 1 / 3;
 const DEFAULT_RATE = 3.8;
+
+const numberFromInput = (value: unknown): number | undefined => {
+    if (value === "" || value === null || value === undefined) return undefined;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+};
+
+const requiredPositiveNumber = (invalidTypeMessage: string, positiveMessage: string) =>
+    z.preprocess(
+        (value) => {
+            const numeric = numberFromInput(value);
+            return numeric === undefined ? NaN : numeric;
+        },
+        z.number({ message: invalidTypeMessage }).positive({ message: positiveMessage })
+    );
+
+const optionalPositiveNumber = (invalidTypeMessage: string, positiveMessage: string) =>
+    z.preprocess((value) => numberFromInput(value), z.number({ message: invalidTypeMessage }).positive({ message: positiveMessage }).optional());
+
+const requiredNumberMin = (invalidTypeMessage: string, minValue: number, minMessage: string) =>
+    z.preprocess(
+        (value) => {
+            const numeric = numberFromInput(value);
+            return numeric === undefined ? NaN : numeric;
+        },
+        z.number({ message: invalidTypeMessage }).min(minValue, { message: minMessage })
+    );
+
+const requiredIntNumberInRange = (invalidTypeMessage: string, minValue: number, maxValue: number, rangeMessage: string) =>
+    z.preprocess(
+        (value) => {
+            const numeric = numberFromInput(value);
+            return numeric === undefined ? NaN : numeric;
+        },
+        z
+            .number({ message: invalidTypeMessage })
+            .int({ message: invalidTypeMessage })
+            .min(minValue, { message: rangeMessage })
+            .max(maxValue, { message: rangeMessage })
+    );
+
+const loanCapacitySchema = z
+    .object({
+        inputMode: z.enum(["income", "installment"], { message: "Veuillez choisir une méthode de saisie" }),
+        monthlyIncome: optionalPositiveNumber("Le revenu mensuel doit être un nombre", "Le revenu mensuel doit être supérieur à 0"),
+        maxMonthlyInstallment: requiredPositiveNumber("La mensualité maximale doit être un nombre", "La mensualité maximale doit être supérieure à 0"),
+        interestRate: requiredNumberMin("Le taux d'intérêt doit être un nombre", 0, "Le taux d'intérêt ne peut pas être négatif"),
+        durationYears: requiredIntNumberInRange(
+            "La durée doit être un nombre",
+            1,
+            MAX_LOAN_DURATION_YEARS,
+            `La durée doit être comprise entre 1 et ${MAX_LOAN_DURATION_YEARS} ans`
+        ),
+    })
+    .superRefine((values, ctx) => {
+        if (values.inputMode === "income" && values.monthlyIncome === undefined) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["monthlyIncome"],
+                message: "Le revenu mensuel est requis dans ce mode",
+            });
+        }
+    });
 
 // Utility functions
 const toMonthlyRate = (annualRate: number): number => (annualRate > 0 ? annualRate / 100 / 12 : 0);
@@ -31,8 +94,6 @@ const formatCurrency = (value: number): string =>
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     }).format(value);
-
-const sumPeriodYears = (periods: RatePeriod[]): number => periods.reduce((sum, p) => sum + (Number(p.years) || 0), 0);
 
 // Calculation functions
 const calculateMaxMonthlyInstallment = (monthlyIncome: number): number => (monthlyIncome > 0 ? monthlyIncome * DEBT_TO_INCOME_RATIO : 0);
@@ -50,52 +111,11 @@ const calculateLoanPrincipalWithSingleRate = (maxInstallment: number, annualRate
     return maxInstallment / denominator;
 };
 
-const calculateLoanPrincipalWithMultipleRates = (maxInstallment: number, periods: RatePeriod[], totalMonths: number): number => {
-    if (totalMonths <= 0 || maxInstallment <= 0 || periods.length === 0) return 0;
-
-    let pvFactorSum = 0;
-    let discountFactor = 1;
-    let monthsCount = 0;
-
-    for (const period of periods) {
-        const months = (Number(period.years) || 0) * 12;
-        const monthlyRate = toMonthlyRate(Number(period.rate));
-
-        for (let m = 0; m < months; m++) {
-            if (monthsCount >= totalMonths) break;
-            discountFactor = discountFactor / (1 + monthlyRate);
-            pvFactorSum += discountFactor;
-            monthsCount++;
-        }
-
-        if (monthsCount >= totalMonths) break;
-    }
-
-    return maxInstallment * pvFactorSum;
-};
-
-const buildMonthlyRatesArray = (rateMode: RateMode, periods: RatePeriod[], singleRate: number, totalMonths: number): number[] => {
+const buildMonthlyRatesArray = (singleRate: number, totalMonths: number): number[] => {
     const monthlyRates: number[] = [];
-
-    if (rateMode === "multi") {
-        let monthIdx = 0;
-        for (const period of periods) {
-            const months = (Number(period.years) || 0) * 12;
-            const rate = toMonthlyRate(Number(period.rate));
-
-            for (let m = 0; m < months && monthIdx < totalMonths; m++) {
-                monthlyRates.push(rate);
-                monthIdx++;
-            }
-
-            if (monthIdx >= totalMonths) break;
-        }
-    } else {
-        const rate = toMonthlyRate(singleRate);
-        monthlyRates.length = totalMonths;
-        monthlyRates.fill(rate);
-    }
-
+    const rate = toMonthlyRate(singleRate);
+    monthlyRates.length = totalMonths;
+    monthlyRates.fill(rate);
     return monthlyRates;
 };
 
@@ -129,105 +149,55 @@ const buildAmortizationTable = (maxLoanPrincipal: number, maxInstallment: number
 };
 
 export default function LoanCapacity() {
-    const [rateMode, setRateMode] = useState<RateMode>("single");
-
     const form = useForm({
         mode: "controlled",
         initialValues: {
+            inputMode: "income" as InputMode,
             monthlyIncome: 2600,
+            maxMonthlyInstallment: calculateMaxMonthlyInstallment(2600),
             interestRate: DEFAULT_RATE,
             durationYears: 20,
-            ratePeriods: [] as RatePeriod[],
         },
-        validate: {
-            monthlyIncome: (value) =>
-                isNaN(value) || !value ? "Le revenu mensuel doit être un nombre" : value <= 0 ? "Le revenu mensuel doit être supérieur à 0" : null,
-            interestRate: (value) =>
-                isNaN(value) || !value ? "Le taux d'intérêt doit être un nombre" : value < 0 ? "Le taux d'intérêt ne peut pas être négatif" : null,
-            durationYears: (value) =>
-                isNaN(value) || !value
-                    ? "La durée doit être un nombre"
-                    : value <= 0 || value > MAX_LOAN_DURATION_YEARS
-                    ? `La durée doit être comprise entre 1 et ${MAX_LOAN_DURATION_YEARS} ans`
-                    : null,
-            ratePeriods: (list: RatePeriod[]) => {
-                if (!Array.isArray(list) || list.length === 0) return null;
-                if (list.some((p) => !isFinite(Number(p.years)) || Number(p.years) <= 0)) return "Chaque période doit avoir des années > 0";
-                if (list.some((p) => !isFinite(Number(p.rate)) || Number(p.rate) < 0)) return "Les taux ne peuvent pas être négatifs";
-                return null;
-            },
-        },
-        transformValues: (values) => ({
-            ...values,
-            monthlyIncome: Number(values.monthlyIncome),
-            interestRate: Number(values.interestRate),
-            durationYears: Number(values.durationYears),
-            ratePeriods: Array.isArray(values.ratePeriods) ? values.ratePeriods.map((p) => ({ years: Number(p.years), rate: Number(p.rate) })) : [],
-        }),
+        validate: zod4Resolver(loanCapacitySchema),
     });
 
-    const { monthlyIncome, interestRate, durationYears, ratePeriods } = form.getValues();
+    const { values, setFieldValue } = form;
+
+    // Parse numeric values explicitly since TextInput/Slider can still store strings in form state.
+    const inputMode = values.inputMode;
+    const maxMonthlyInstallment = Number(values.maxMonthlyInstallment) || 0;
+    const interestRate = Number(values.interestRate) || 0;
+    const durationYears = Number(values.durationYears) || 0;
+
+    useEffect(() => {
+        if (inputMode !== "income") return;
+
+        const income = Number(values.monthlyIncome);
+        if (!Number.isFinite(income) || income <= 0) return;
+
+        const derivedInstallment = calculateMaxMonthlyInstallment(income);
+        const currentInstallment = Number(values.maxMonthlyInstallment);
+
+        if (!Number.isFinite(currentInstallment) || Math.abs(currentInstallment - derivedInstallment) > 0.01) {
+            setFieldValue("maxMonthlyInstallment", derivedInstallment);
+        }
+    }, [inputMode, setFieldValue, values.monthlyIncome, values.maxMonthlyInstallment]);
 
     // Derived state
     const totalMonths = durationYears * 12;
-    const periodsActive = Array.isArray(ratePeriods) && ratePeriods.length > 0;
-    const usePeriods = rateMode === "multi" && periodsActive;
-    const periodsYearsTotal = usePeriods ? sumPeriodYears(ratePeriods) : 0;
-    const periodsMismatch = usePeriods && periodsYearsTotal !== durationYears;
 
     // Calculations
-    const maxMonthlyInstallment = useMemo(() => calculateMaxMonthlyInstallment(monthlyIncome), [monthlyIncome]);
-
     const maxLoanPrincipal = useMemo(() => {
         if (maxMonthlyInstallment <= 0) return 0;
-
-        if (usePeriods && !periodsMismatch) {
-            return calculateLoanPrincipalWithMultipleRates(maxMonthlyInstallment, ratePeriods, totalMonths);
-        }
-
         return calculateLoanPrincipalWithSingleRate(maxMonthlyInstallment, interestRate, totalMonths);
-    }, [maxMonthlyInstallment, usePeriods, periodsMismatch, ratePeriods, totalMonths, interestRate]);
+    }, [maxMonthlyInstallment, totalMonths, interestRate]);
 
-    const monthlyRates = useMemo(
-        () => buildMonthlyRatesArray(usePeriods && !periodsMismatch ? "multi" : "single", ratePeriods, interestRate, totalMonths),
-        [usePeriods, periodsMismatch, ratePeriods, interestRate, totalMonths]
-    );
+    const monthlyRates = useMemo(() => buildMonthlyRatesArray(interestRate, totalMonths), [interestRate, totalMonths]);
 
     const amortizationTable = useMemo(
         () => buildAmortizationTable(maxLoanPrincipal, maxMonthlyInstallment, monthlyRates, totalMonths),
         [maxLoanPrincipal, maxMonthlyInstallment, monthlyRates, totalMonths]
     );
-
-    // Auto-fill last period's years to match loan duration
-    useEffect(() => {
-        if (rateMode !== "multi") return;
-
-        const list = form.values.ratePeriods;
-        const duration = Number(form.values.durationYears) || 0;
-
-        if (!Array.isArray(list) || list.length === 0 || duration <= 0) return;
-
-        const lastIndex = list.length - 1;
-        const sumExceptLast = list.slice(0, lastIndex).reduce((s, p) => s + (Number(p.years) || 0), 0);
-        const targetLastYears = Math.max(duration - sumExceptLast, 0);
-        const currentLastYears = Number(list[lastIndex]?.years) || 0;
-
-        if (currentLastYears !== targetLastYears) {
-            form.setFieldValue(`ratePeriods.${lastIndex}.years`, targetLastYears);
-        }
-    }, [form, form.values.ratePeriods, form.values.durationYears, rateMode]);
-
-    // Event handlers
-    const handleAddPeriod = () => {
-        const list = form.values.ratePeriods || [];
-        const used = sumPeriodYears(list);
-        const remaining = Math.max(Number(form.values.durationYears) - used, 0);
-        form.insertListItem("ratePeriods", { years: remaining || 1, rate: DEFAULT_RATE });
-    };
-
-    const handleRemovePeriod = (index: number) => {
-        form.removeListItem("ratePeriods", index);
-    };
 
     return (
         <Container size={"md"}>
@@ -238,101 +208,63 @@ export default function LoanCapacity() {
 
                 <Box w={{ base: "100%", sm: "90%", md: 600 }} px={{ base: "md", sm: 0 }}>
                     <form onSubmit={form.onSubmit((values) => console.log(values))}>
-                        <Group justify="flex-start" mb={8} grow>
-                            <TextInput
-                                withAsterisk
-                                label="Revenu mensuel"
-                                placeholder="3000"
-                                key={form.key("monthlyIncome")}
-                                {...form.getInputProps("monthlyIncome")}
-                            />
+                        <Flex direction={"column"} gap="1.5rem">
+                            <Radio.Group withAsterisk label="Je renseigne" key={form.key("inputMode")} {...form.getInputProps("inputMode")}>
+                                <Group mt={8}>
+                                    <Radio value="income" label="Mon revenu mensuel" />
+                                    <Radio value="installment" label="Ma mensualité maximale" />
+                                </Group>
+                            </Radio.Group>
 
-                            {/* <TextInput
-                                withAsterisk
-                                label="Durée (années)"
-                                placeholder="15"
-                                key={form.key("durationYears")}
-                                {...form.getInputProps("durationYears")}
-                            /> */}
+                            <Group align="flex-start" justify="flex-start" grow>
+                                {inputMode === "income" && (
+                                    <NumberInput
+                                        withAsterisk
+                                        label="Revenu mensuel"
+                                        placeholder="3000"
+                                        key={form.key("monthlyIncome")}
+                                        {...form.getInputProps("monthlyIncome")}
+                                    />
+                                )}
+
+                                <NumberInput
+                                    withAsterisk
+                                    label="Mensualité maximale"
+                                    placeholder="1000"
+                                    key={form.key("maxMonthlyInstallment")}
+                                    disabled={inputMode === "income"}
+                                    {...form.getInputProps("maxMonthlyInstallment")}
+                                />
+                            </Group>
 
                             <Flex direction="column" w="100%">
-                                <Text size="sm">Durée (années)</Text>
+                                <InputLabel size="sm">Durée (années)</InputLabel>
                                 <Slider
-                                    label="Durée du prêt (années)"
                                     defaultValue={25}
                                     restrictToMarks
-                                    min={0}
+                                    min={1}
                                     max={25}
                                     marks={[5, 10, 15, 20, 25].map((v) => ({ value: v, label: v }))}
                                     key={form.key("durationYears")}
                                     {...form.getInputProps("durationYears")}
                                 />
                             </Flex>
-                        </Group>
 
-                        <div style={{ marginTop: 16 }}>
-                            <Radio.Group value={rateMode} onChange={(v) => setRateMode(v as RateMode)} mb={8}>
-                                <Group gap="md">
-                                    <Radio value="single" label="Taux unique" />
-                                    <Radio value="multi" label="Périodes multiples" />
-                                </Group>
-                            </Radio.Group>
-
-                            {rateMode === "multi" ? (
-                                <>
-                                    <Group justify="space-between" mb={8}>
-                                        <Text size="sm">Périodes de taux</Text>
-                                        <Button variant="light" size="xs" onClick={handleAddPeriod}>
-                                            Ajouter une période
-                                        </Button>
-                                    </Group>
-
-                                    {form.values.ratePeriods?.map((_, i) => (
-                                        <Group key={i} align="flex-end" mb={8} grow>
-                                            <NumberInput
-                                                label="Années"
-                                                min={1}
-                                                step={1}
-                                                allowDecimal={false}
-                                                disabled={i === (form.values.ratePeriods?.length || 1) - 1}
-                                                key={form.key(`ratePeriods.${i}.years`)}
-                                                {...form.getInputProps(`ratePeriods.${i}.years`)}
-                                            />
-                                            <NumberInput
-                                                label="Taux (%)"
-                                                min={0}
-                                                step={0.1}
-                                                decimalScale={2}
-                                                key={form.key(`ratePeriods.${i}.rate`)}
-                                                {...form.getInputProps(`ratePeriods.${i}.rate`)}
-                                            />
-                                            <Button color="red" variant="light" onClick={() => handleRemovePeriod(i)}>
-                                                Supprimer
-                                            </Button>
-                                        </Group>
-                                    ))}
-
-                                    {periodsActive && (
-                                        <Text size="sm" c={periodsMismatch ? "red" : "dimmed"}>
-                                            Total des années des périodes: {periodsYearsTotal} / Durée du prêt: {durationYears}
-                                            {periodsMismatch ? " — Ajustez pour que la somme corresponde à la durée." : ""}
-                                        </Text>
-                                    )}
-                                </>
-                            ) : (
-                                <TextInput
+                            <Box>
+                                <NumberInput
                                     withAsterisk
                                     label="Taux d'intérêt (%)"
                                     placeholder="3.8"
                                     key={form.key("interestRate")}
+                                    step={0.1}
                                     {...form.getInputProps("interestRate")}
                                 />
-                            )}
-                        </div>
+                            </Box>
 
-                        <Group justify="flex-end" mt="md">
-                            <Button type="submit">Valider</Button>
-                        </Group>
+                            <Group justify="flex-end" mt="md">
+                                <Button type="submit">Valider</Button>
+                            </Group>
+                        </Flex>
                     </form>
                 </Box>
 
@@ -345,21 +277,6 @@ export default function LoanCapacity() {
                         <p>
                             <strong>Capacité d'emprunt maximale :</strong> {formatCurrency(maxLoanPrincipal)}
                         </p>
-
-                        {usePeriods && !periodsMismatch && (
-                            <div>
-                                <Text size="sm" c="dimmed">
-                                    Périodes utilisées :
-                                </Text>
-                                <ul>
-                                    {ratePeriods.map((p, i) => (
-                                        <li key={i}>
-                                            {p.years} ans @ {p.rate}%
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
 
                         <Accordion>
                             <Accordion.Item value="amortization" mt={16}>
