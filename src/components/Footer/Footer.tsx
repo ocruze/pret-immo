@@ -33,8 +33,8 @@ export function Footer() {
                         }}
                         ta={"center"}
                     >
-                        Petite application (un peu vibe codée) pour calculer la capacité d'emprunt immobilier. A but éducatif uniquement, ne pas utiliser pour
-                        des demandes réelles.
+                        Petit site vibe-codé pour calculer la capacité d'emprunt immobilier. À but éducatif uniquement, ne pas utiliser pour des demandes
+                        réelles.
                     </Text>
                     <Group className={classes.links}>{items}</Group>
                 </Flex>
