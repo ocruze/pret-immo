@@ -1,9 +1,26 @@
-import { Accordion, Box, Button, Container, Flex, Group, InputLabel, NumberInput, Radio, Slider, Table, Text, Title } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
+import {
+    Accordion,
+    Anchor,
+    Box,
+    Button,
+    Collapse,
+    Container,
+    Flex,
+    Group,
+    InputLabel,
+    NumberInput,
+    Radio,
+    Slider,
+    Table,
+    Text,
+    Title,
+    UnstyledButton,
+} from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { zod4Resolver } from "mantine-form-zod-resolver";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
-
 // Types
 type AmortizationRow = {
     month: number;
@@ -17,6 +34,8 @@ type AmortizationRow = {
 type InputMode = "income" | "installment";
 type InsuranceMode = "flat" | "rate";
 type InsuranceBasis = "initial" | "remaining";
+type GuaranteeType = "none" | "caution" | "mortgage";
+type GuaranteePayment = "upfront" | "financed";
 
 // Constants
 const MAX_LOAN_DURATION_YEARS = 25;
@@ -78,11 +97,14 @@ const loanCapacitySchema = z
         inputMode: z.enum(["income", "installment"], { message: "Veuillez choisir une méthode de saisie" }),
         monthlyIncome: optionalPositiveNumber("Le revenu mensuel doit être un nombre", "Le revenu mensuel doit être supérieur à 0"),
         maxMonthlyInstallment: requiredPositiveNumber("La mensualité maximale doit être un nombre", "La mensualité maximale doit être supérieure à 0"),
-        insuranceMode: z.enum(["flat", "rate"], { message: "Veuillez choisir un mode d'assurance" }),
-        insuranceMonthly: optionalNumberMinDefault0("L'assurance mensuelle doit être un nombre", 0, "L'assurance mensuelle ne peut pas être négative"),
-        insuranceRateAnnual: optionalNumberMinDefault0("Le taux d'assurance doit être un nombre", 0, "Le taux d'assurance ne peut pas être négatif"),
+        insuranceMode: z.enum(["flat", "rate"], { message: "Veuillez choisir un mode d’assurance" }),
+        insuranceMonthly: optionalNumberMinDefault0("L’assurance mensuelle doit être un nombre", 0, "L’assurance mensuelle ne peut pas être négative"),
+        insuranceRateAnnual: optionalNumberMinDefault0("Le taux d’assurance doit être un nombre", 0, "Le taux d’assurance ne peut pas être négatif"),
         insuranceBasis: z.enum(["initial", "remaining"], { message: "Veuillez choisir une base de calcul" }),
-        interestRate: requiredNumberMin("Le taux d'intérêt doit être un nombre", 0, "Le taux d'intérêt ne peut pas être négatif"),
+        guaranteeType: z.enum(["none", "caution", "mortgage"], { message: "Veuillez choisir un type de garantie" }),
+        guaranteeFee: optionalNumberMinDefault0("Les frais de garantie doivent être un nombre", 0, "Les frais de garantie ne peuvent pas être négatifs"),
+        guaranteePayment: z.enum(["upfront", "financed"], { message: "Veuillez choisir un mode de paiement" }),
+        interestRate: requiredNumberMin("Le taux d’intérêt doit être un nombre", 0, "Le taux d’intérêt ne peut pas être négatif"),
         durationYears: requiredIntNumberInRange(
             "La durée doit être un nombre",
             1,
@@ -103,7 +125,15 @@ const loanCapacitySchema = z
             ctx.addIssue({
                 code: "custom",
                 path: ["insuranceRateAnnual"],
-                message: "Le taux d'assurance est requis dans ce mode",
+                message: "Le taux d’assurance est requis dans ce mode",
+            });
+        }
+
+        if (values.guaranteeType !== "none" && values.guaranteeFee <= 0) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["guaranteeFee"],
+                message: "Veuillez renseigner les frais de garantie",
             });
         }
     });
@@ -284,6 +314,9 @@ const formatPercent = (value: number): string =>
     }).format(value);
 
 export default function LoanCapacity() {
+    const [insuranceHelpOpen, setInsuranceHelpOpen] = useState(false);
+    const [guaranteeHelpOpen, setGuaranteeHelpOpen] = useState(false);
+
     const form = useForm({
         mode: "controlled",
         initialValues: {
@@ -294,6 +327,9 @@ export default function LoanCapacity() {
             insuranceMonthly: 0,
             insuranceRateAnnual: DEFAULT_INSURANCE_RATE,
             insuranceBasis: "initial" as InsuranceBasis,
+            guaranteeType: "none" as GuaranteeType,
+            guaranteeFee: 0,
+            guaranteePayment: "upfront" as GuaranteePayment,
             interestRate: DEFAULT_RATE,
             durationYears: 25,
         },
@@ -309,6 +345,9 @@ export default function LoanCapacity() {
     const insuranceMonthly = Number(values.insuranceMonthly) || 0;
     const insuranceRateAnnual = Number(values.insuranceRateAnnual) || 0;
     const insuranceBasis = values.insuranceBasis;
+    const guaranteeType = values.guaranteeType;
+    const guaranteeFee = Number(values.guaranteeFee) || 0;
+    const guaranteePayment = values.guaranteePayment;
     const interestRate = Number(values.interestRate) || 0;
     const durationYears = Number(values.durationYears) || 0;
 
@@ -358,6 +397,13 @@ export default function LoanCapacity() {
         [maxLoanPrincipal, creditMonthlyInstallment, monthlyRates, totalMonths]
     );
 
+    const guaranteeFeeApplied = useMemo(() => (guaranteeType === "none" ? 0 : guaranteeFee), [guaranteeType, guaranteeFee]);
+
+    const netProjectAmount = useMemo(() => {
+        if (maxLoanPrincipal <= 0) return 0;
+        return Math.max(maxLoanPrincipal - (guaranteePayment === "financed" ? guaranteeFeeApplied : 0), 0);
+    }, [maxLoanPrincipal, guaranteePayment, guaranteeFeeApplied]);
+
     const insurancePerMonth = useMemo(() => {
         const months = amortizationTable.length;
         if (months === 0) return [] as number[];
@@ -386,6 +432,8 @@ export default function LoanCapacity() {
         const totalInsurance = insurancePerMonth.reduce((sum, value) => sum + value, 0);
         const totalRepaid = totalCreditRepaid + totalInsurance;
         const totalCost = totalInterest + totalInsurance;
+        const totalCostIncludingFees = totalCost + guaranteeFeeApplied;
+        const totalPaidIncludingFees = totalRepaid + (guaranteePayment === "upfront" ? guaranteeFeeApplied : 0);
 
         return {
             months: amortizationTable.length,
@@ -395,61 +443,68 @@ export default function LoanCapacity() {
             totalPrincipalRepaid,
             totalInsurance,
             totalCost,
+            totalCostIncludingFees,
+            totalPaidIncludingFees,
         };
-    }, [amortizationTable, insurancePerMonth]);
+    }, [amortizationTable, insurancePerMonth, guaranteeFeeApplied, guaranteePayment]);
 
     const annualEffectiveRate = useMemo(() => {
         if (maxLoanPrincipal <= 0 || amortizationTable.length === 0) return null;
 
-        const cashflows = [maxLoanPrincipal, ...amortizationTable.map((row, index) => -(row.installment + (insurancePerMonth[index] || 0)))];
+        const netAtStart = maxLoanPrincipal - guaranteeFeeApplied;
+        const cashflows = [netAtStart, ...amortizationTable.map((row, index) => -(row.installment + (insurancePerMonth[index] || 0)))];
         const irrMonthly = calculateIrrMonthly(cashflows);
         if (irrMonthly === null) return null;
 
         return Math.pow(1 + irrMonthly, 12) - 1;
-    }, [maxLoanPrincipal, amortizationTable, insurancePerMonth]);
+    }, [maxLoanPrincipal, amortizationTable, insurancePerMonth, guaranteeFeeApplied]);
 
     const annualEffectiveRateWithoutInsurance = useMemo(() => {
         if (maxLoanPrincipal <= 0 || amortizationTable.length === 0) return null;
 
-        const cashflows = [maxLoanPrincipal, ...amortizationTable.map((row) => -row.installment)];
+        const netAtStart = maxLoanPrincipal - guaranteeFeeApplied;
+        const cashflows = [netAtStart, ...amortizationTable.map((row) => -row.installment)];
         const irrMonthly = calculateIrrMonthly(cashflows);
         if (irrMonthly === null) return null;
 
         return Math.pow(1 + irrMonthly, 12) - 1;
-    }, [maxLoanPrincipal, amortizationTable]);
+    }, [maxLoanPrincipal, amortizationTable, guaranteeFeeApplied]);
 
     return (
         <Container size={"md"}>
             <Flex direction={"column"} gap="2rem" align={"center"}>
                 <Title order={1} ta={"center"} my="lg">
-                    Calculer votre capacité d'emprunt
+                    Calculer votre capacité d’emprunt
                 </Title>
 
                 <Box w={{ base: "100%", sm: "90%", md: 600 }} px={{ base: "md", sm: 0 }}>
                     <form onSubmit={form.onSubmit((values) => console.log(values))}>
                         <Flex direction={"column"} gap="1.5rem">
-                            <Radio.Group withAsterisk label="Je renseigne" key={form.key("inputMode")} {...form.getInputProps("inputMode")}>
+                            <Radio.Group
+                                withAsterisk
+                                label="Budget mensuel"
+                                description="Budget mensuel total = mensualité de crédit + assurance emprunteur."
+                                key={form.key("inputMode")}
+                                {...form.getInputProps("inputMode")}
+                            >
                                 <Group mt={8}>
-                                    <Radio value="income" label="Mon revenu mensuel" />
-                                    <Radio value="installment" label="Ma mensualité maximale" />
+                                    <Radio
+                                        value="income"
+                                        label="Mon revenu mensuel"
+                                        description="Mensualité maximale calculée automatiquement (1/3 du revenu)."
+                                    />
+                                    <Radio value="installment" label="Ma mensualité maximale" description="Mensualité maximale saisie manuellement." />
                                 </Group>
                             </Radio.Group>
 
                             <Group align="flex-start" justify="flex-start" grow>
                                 {inputMode === "income" && (
-                                    <NumberInput
-                                        withAsterisk
-                                        label="Revenu mensuel"
-                                        placeholder="3000"
-                                        key={form.key("monthlyIncome")}
-                                        {...form.getInputProps("monthlyIncome")}
-                                    />
+                                    <NumberInput withAsterisk label="Revenu mensuel" key={form.key("monthlyIncome")} {...form.getInputProps("monthlyIncome")} />
                                 )}
 
                                 <NumberInput
                                     withAsterisk
                                     label="Mensualité maximale"
-                                    placeholder="1000"
                                     key={form.key("maxMonthlyInstallment")}
                                     disabled={inputMode === "income"}
                                     {...form.getInputProps("maxMonthlyInstallment")}
@@ -459,15 +514,43 @@ export default function LoanCapacity() {
                             <Box>
                                 <Radio.Group label="Assurance emprunteur" key={form.key("insuranceMode")} {...form.getInputProps("insuranceMode")}>
                                     <Group mt={8}>
-                                        <Radio value="flat" label="Prime mensuelle (€ / mois)" />
-                                        <Radio value="rate" label="Taux d'assurance (% / an)" />
+                                        <Radio value="flat" label="Prime mensuelle (€ / mois)" description="Montant exact payé chaque mois." />
+                                        <Radio value="rate" label="Taux d’assurance (% / an)" description="Taux appliqué au capital (selon contrat)." />
                                     </Group>
                                 </Radio.Group>
+
+                                <Text size="sm" c="dimmed" mt={6}>
+                                    Choisissez l’option selon l’information dont vous disposez (montant ou taux).
+                                </Text>
+
+                                <UnstyledButton onClick={() => setInsuranceHelpOpen((v) => !v)}>
+                                    <Text component="span" size="sm" c="dimmed" style={{ textDecoration: "underline" }}>
+                                        <IconInfoCircle size={"14px"} /> Comment choisir ?
+                                    </Text>
+                                </UnstyledButton>
+
+                                <Collapse in={insuranceHelpOpen}>
+                                    <Box mt={6}>
+                                        <Text size="sm">
+                                            <strong>Prime mensuelle</strong> : si vous connaissez un montant en €/mois (devis/contrat).
+                                        </Text>
+                                        <Text size="sm" mt={4}>
+                                            <strong>Taux annuel</strong> : si vous connaissez un taux en %/an (ex: 0,30%/an). Base « capital initial » = prime
+                                            plutôt constante ; base « capital restant dû » = prime décroissante.
+                                        </Text>
+                                        <Text size="sm" mt={4}>
+                                            <Anchor href="https://www.service-public.gouv.fr/particuliers/vosdroits/F1671" target="_blank" rel="noreferrer">
+                                                En savoir plus sur l’assurance emprunteur (service-public.gouv.fr)
+                                            </Anchor>
+                                        </Text>
+                                    </Box>
+                                </Collapse>
 
                                 {insuranceMode === "flat" ? (
                                     <NumberInput
                                         mt={8}
                                         label="Prime mensuelle (€/mois)"
+                                        description="Montant fixe ajouté chaque mois (en plus de la mensualité de crédit)."
                                         placeholder="0"
                                         min={0}
                                         key={form.key("insuranceMonthly")}
@@ -476,7 +559,9 @@ export default function LoanCapacity() {
                                 ) : (
                                     <Flex direction={{ base: "column", sm: "row" }} gap={"md"} mt={8}>
                                         <NumberInput
-                                            label="Taux d'assurance (% / an)"
+                                            withAsterisk
+                                            label="Taux d’assurance (% / an)"
+                                            description="Ex: 0,30 = 0,30%/an (pas 30%)."
                                             placeholder="0.30"
                                             min={0}
                                             step={0.05}
@@ -486,15 +571,79 @@ export default function LoanCapacity() {
 
                                         <Radio.Group label="Base" key={form.key("insuranceBasis")} {...form.getInputProps("insuranceBasis")}>
                                             <Group mt={8}>
-                                                <Radio value="initial" label="Capital initial" />
-                                                <Radio value="remaining" label="Capital restant dû" />
+                                                <Radio value="initial" label="Capital initial" description="Prime plutôt constante." />
+                                                <Radio value="remaining" label="Capital restant dû" description="Prime décroissante." />
                                             </Group>
                                         </Radio.Group>
                                     </Flex>
                                 )}
 
                                 <Text size="xs" c="dimmed" mt={6}>
-                                    L'assurance est incluse dans la mensualité totale et dans le TAEG.
+                                    L’assurance est incluse dans la mensualité totale et dans le TAEG.
+                                </Text>
+                            </Box>
+
+                            <Box>
+                                <Radio.Group label="Garantie" key={form.key("guaranteeType")} {...form.getInputProps("guaranteeType")}>
+                                    <Group mt={8}>
+                                        <Radio value="none" label="Aucune" description="Pas de frais de garantie modélisés." />
+                                        <Radio value="caution" label="Caution" description="Garantie via un organisme de cautionnement." />
+                                        <Radio value="mortgage" label="Hypothèque / PPD" description="Sûreté réelle sur le bien (frais associés)." />
+                                    </Group>
+                                </Radio.Group>
+
+                                <Text size="sm" c="dimmed" mt={6}>
+                                    La garantie protège la banque. Les frais associés peuvent impacter le TAEG.
+                                </Text>
+
+                                <UnstyledButton onClick={() => setGuaranteeHelpOpen((v) => !v)}>
+                                    <Text component="span" size="sm" c="dimmed" style={{ textDecoration: "underline" }}>
+                                        <IconInfoCircle size={"14px"} /> Comment choisir ?
+                                    </Text>
+                                </UnstyledButton>
+
+                                <Collapse in={guaranteeHelpOpen}>
+                                    <Box mt={6}>
+                                        <Text size="sm">
+                                            <strong>Caution</strong> : garantie via un organisme ; coût et modalités selon dossier/organisme.
+                                        </Text>
+                                        <Text size="sm" mt={4}>
+                                            <strong>Hypothèque / PPD</strong> : sûreté réelle sur le bien (frais/inscription, formalités).
+                                        </Text>
+                                        <Text size="sm" mt={4}>
+                                            <Anchor
+                                                href="https://www.lafinancepourtous.com/pratique/credit/credit-immobilier/pret-immo-l-essentiel-a-savoir/les-garanties/"
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            >
+                                                En savoir plus sur les garanties (lafinancepourtous.com)
+                                            </Anchor>
+                                        </Text>
+                                    </Box>
+                                </Collapse>
+
+                                {guaranteeType !== "none" && (
+                                    <Flex direction={{ base: "column", sm: "row" }} gap={"md"} mt={8}>
+                                        <NumberInput
+                                            label="Frais de garantie (€)"
+                                            description="Estimation des frais liés à la garantie (impacte le TAEG)."
+                                            placeholder="0"
+                                            min={0}
+                                            key={form.key("guaranteeFee")}
+                                            {...form.getInputProps("guaranteeFee")}
+                                        />
+
+                                        <Radio.Group label="Paiement" key={form.key("guaranteePayment")} {...form.getInputProps("guaranteePayment")}>
+                                            <Group mt={8}>
+                                                <Radio value="upfront" label="Payés comptant" description="Payés au départ." />
+                                                <Radio value="financed" label="Financés" description="Déduits du montant débloqué." />
+                                            </Group>
+                                        </Radio.Group>
+                                    </Flex>
+                                )}
+
+                                <Text size="xs" c="dimmed" mt={6}>
+                                    Les frais de garantie sont inclus dans le TAEG (paiement au départ).
                                 </Text>
                             </Box>
 
@@ -509,12 +658,23 @@ export default function LoanCapacity() {
                                     key={form.key("durationYears")}
                                     {...form.getInputProps("durationYears")}
                                 />
+                                <Text size="sm" c="dimmed" mt={"lg"}>
+                                    Plus la durée est longue, plus la mensualité baisse, mais le coût total augmente.
+                                </Text>
                             </Flex>
 
                             <Box>
                                 <NumberInput
                                     withAsterisk
-                                    label="Taux d'intérêt (%)"
+                                    label="Taux d’intérêt (%)"
+                                    description={
+                                        <Text component="span" style={{ display: "block" }} size="sm" c="dimmed">
+                                            Taux nominal annuel du prêt (hors assurance). Le TAEG inclut aussi l’assurance et les frais.{" "}
+                                            <Anchor href="https://www.service-public.gouv.fr/particuliers/vosdroits/F2456" target="_blank" rel="noreferrer">
+                                                En savoir plus
+                                            </Anchor>
+                                        </Text>
+                                    }
                                     placeholder="3.8"
                                     key={form.key("interestRate")}
                                     step={0.1}
@@ -547,20 +707,40 @@ export default function LoanCapacity() {
                             <strong>Mensualité crédit (hors assurance) :</strong> {formatCurrency(creditMonthlyInstallment)}
                         </p>
                         <p>
-                            <strong>Capacité d'emprunt maximale :</strong> {formatCurrency(maxLoanPrincipal)}
+                            <strong>Capacité d’emprunt maximale :</strong> {formatCurrency(maxLoanPrincipal)}
                         </p>
+                        {guaranteeType !== "none" && guaranteePayment === "upfront" && (
+                            <p>
+                                <strong>Frais de garantie à payer au départ :</strong> {formatCurrency(guaranteeFeeApplied)}
+                            </p>
+                        )}
+                        {guaranteeType !== "none" && guaranteePayment === "financed" && (
+                            <p>
+                                <strong>Montant disponible (après frais financés) :</strong> {formatCurrency(netProjectAmount)}
+                            </p>
+                        )}
                         <p>
                             <strong>Total remboursé (crédit + assurance) :</strong> {formatCurrency(totals.totalRepaid)}
                         </p>
+                        {guaranteeType !== "none" && (
+                            <p>
+                                <strong>Total payé (crédit + assurance + frais) :</strong> {formatCurrency(totals.totalPaidIncludingFees)}
+                            </p>
+                        )}
                         <p>
                             <strong>Coût du crédit (intérêts) :</strong> {formatCurrency(totals.totalInterest)}
                         </p>
                         <p>
-                            <strong>Coût de l'assurance :</strong> {formatCurrency(totals.totalInsurance)}
+                            <strong>Coût de l’assurance :</strong> {formatCurrency(totals.totalInsurance)}
                         </p>
                         <p>
                             <strong>Coût total (intérêts + assurance) :</strong> {formatCurrency(totals.totalCost)}
                         </p>
+                        {guaranteeType !== "none" && (
+                            <p>
+                                <strong>Coût total (intérêts + assurance + frais) :</strong> {formatCurrency(totals.totalCostIncludingFees)}
+                            </p>
+                        )}
                         <p>
                             <strong>TAEG (avec assurance) :</strong> {annualEffectiveRate === null ? "—" : formatPercent(annualEffectiveRate)}
                         </p>
@@ -572,7 +752,7 @@ export default function LoanCapacity() {
                         <Accordion>
                             <Accordion.Item value="amortization" mt={16}>
                                 <Accordion.Control p={0}>
-                                    <strong>Tableau d'amortissement :</strong>
+                                    <strong>Tableau d’amortissement :</strong>
                                 </Accordion.Control>
                                 <Accordion.Panel>
                                     <Table.ScrollContainer minWidth={500}>

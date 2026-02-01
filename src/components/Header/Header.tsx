@@ -1,8 +1,10 @@
 import { Burger, Button, Container, Flex, Group } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
+import { IconCashBanknote } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { links } from "../../links";
+
 import classes from "./Header.module.css";
 
 export function Header() {
@@ -30,7 +32,9 @@ export function Header() {
         <header className={classes.header}>
             <Container size="md" className={classes.inner}>
                 <Flex justify={"space-between"} align="center" gap={{ base: "1rem", sm: "6rem" }} w={"100%"}>
-                    <span>Prêt immo</span>
+                    <Flex component="span" gap={"xs"}>
+                        <IconCashBanknote stroke={2} /> Prêt immo
+                    </Flex>
                     <Group gap={5} visibleFrom="xs">
                         {items}
                     </Group>
