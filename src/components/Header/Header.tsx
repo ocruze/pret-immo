@@ -1,4 +1,4 @@
-import { Burger, Button, Container, Flex, Group } from "@mantine/core";
+import { Burger, Button, Collapse, Container, Flex, Group, Stack } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconCashBanknote } from "@tabler/icons-react";
 import { useState } from "react";
@@ -19,8 +19,7 @@ export function Header() {
             // className={classes.link}
             variant={active === link.link ? "filled" : "subtle"}
             data-active={active === link.link || undefined}
-            onClick={(event) => {
-                event.preventDefault();
+            onClick={() => {
                 setActive(link.link);
             }}
         >
@@ -40,6 +39,11 @@ export function Header() {
                     </Group>
                     <Burger opened={opened} onClick={toggle} hiddenFrom="xs" size="sm" />
                 </Flex>
+                <Collapse in={opened} hiddenFrom="xs">
+                    <Stack gap={8} mt={12} pb={12}>
+                        {items}
+                    </Stack>
+                </Collapse>
             </Container>
         </header>
     );

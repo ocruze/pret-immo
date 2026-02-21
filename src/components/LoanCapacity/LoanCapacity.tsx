@@ -21,15 +21,15 @@ import { useForm } from "@mantine/form";
 import { zod4Resolver } from "mantine-form-zod-resolver";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
-// Types
-type AmortizationRow = {
-    month: number;
-    capitalBefore: number;
-    interest: number;
-    amortization: number;
-    installment: number;
-    capitalAfter: number;
-};
+import {
+    buildAmortizationTable,
+    buildMonthlyRatesArray,
+    calculateIrrMonthly,
+    calculateLoanPrincipalWithSingleRate,
+    calculateMaxPrincipalWithInsuranceRate,
+    calculateMonthlyInstallmentForPrincipal,
+    toMonthlyRate,
+} from "../../lib/loan";
 
 type InputMode = "income" | "installment";
 type InsuranceMode = "flat" | "rate";
@@ -138,9 +138,6 @@ const loanCapacitySchema = z
         }
     });
 
-// Utility functions
-const toMonthlyRate = (annualRate: number): number => (annualRate > 0 ? annualRate / 100 / 12 : 0);
-
 const formatCurrency = (value: number): string =>
     new Intl.NumberFormat("fr-FR", {
         style: "currency",
@@ -152,160 +149,6 @@ const formatCurrency = (value: number): string =>
 // Calculation functions
 const calculateMaxMonthlyInstallment = (monthlyIncome: number): number => (monthlyIncome > 0 ? monthlyIncome * DEBT_TO_INCOME_RATIO : 0);
 
-const calculateLoanPrincipalWithSingleRate = (maxInstallment: number, annualRate: number, totalMonths: number): number => {
-    if (totalMonths <= 0 || maxInstallment <= 0) return 0;
-
-    const monthlyRate = toMonthlyRate(annualRate);
-
-    if (monthlyRate === 0) {
-        return maxInstallment * totalMonths;
-    }
-
-    const denominator = monthlyRate / (1 - Math.pow(1 + monthlyRate, -totalMonths));
-    return maxInstallment / denominator;
-};
-
-const calculateMonthlyInstallmentForPrincipal = (principal: number, annualRate: number, totalMonths: number): number => {
-    if (principal <= 0 || totalMonths <= 0) return 0;
-
-    const monthlyRate = toMonthlyRate(annualRate);
-    if (monthlyRate === 0) return principal / totalMonths;
-
-    const denominator = 1 - Math.pow(1 + monthlyRate, -totalMonths);
-    return (principal * monthlyRate) / denominator;
-};
-
-const calculateMaxPrincipalWithInsuranceRate = (monthlyBudget: number, annualLoanRate: number, annualInsuranceRate: number, totalMonths: number): number => {
-    if (monthlyBudget <= 0 || totalMonths <= 0) return 0;
-
-    const insuranceMonthlyRate = toMonthlyRate(annualInsuranceRate);
-
-    // If insurance is 0%, fall back to the standard formula.
-    if (insuranceMonthlyRate === 0) {
-        return calculateLoanPrincipalWithSingleRate(monthlyBudget, annualLoanRate, totalMonths);
-    }
-
-    // Upper bound: principal without insurance (will overrun budget when insurance is added).
-    let high = calculateLoanPrincipalWithSingleRate(monthlyBudget, annualLoanRate, totalMonths);
-    if (high <= 0) return 0;
-
-    const totalMonthlyOutflow = (principal: number): number =>
-        calculateMonthlyInstallmentForPrincipal(principal, annualLoanRate, totalMonths) + principal * insuranceMonthlyRate;
-
-    // Ensure we bracket the solution.
-    while (totalMonthlyOutflow(high) < monthlyBudget && high < 1e9) {
-        high *= 2;
-    }
-
-    let low = 0;
-    for (let i = 0; i < 80; i++) {
-        const mid = (low + high) / 2;
-        if (totalMonthlyOutflow(mid) > monthlyBudget) {
-            high = mid;
-        } else {
-            low = mid;
-        }
-    }
-
-    return low;
-};
-
-const buildMonthlyRatesArray = (singleRate: number, totalMonths: number): number[] => {
-    const monthlyRates: number[] = [];
-    const rate = toMonthlyRate(singleRate);
-    monthlyRates.length = totalMonths;
-    monthlyRates.fill(rate);
-    return monthlyRates;
-};
-
-const buildAmortizationTable = (maxLoanPrincipal: number, maxInstallment: number, monthlyRates: number[], totalMonths: number): AmortizationRow[] => {
-    if (maxLoanPrincipal <= 0 || totalMonths <= 0) return [];
-
-    const table: AmortizationRow[] = [];
-    let remainingCapital = maxLoanPrincipal;
-
-    for (let month = 1; month <= totalMonths; month++) {
-        const capitalBefore = remainingCapital;
-        const rate = monthlyRates[month - 1] || 0;
-        const interest = capitalBefore * rate;
-        const amortization = Math.min(Math.max(maxInstallment - interest, 0), capitalBefore);
-        const installment = interest + amortization;
-        const capitalAfter = capitalBefore - amortization;
-
-        table.push({
-            month,
-            capitalBefore,
-            interest,
-            amortization,
-            installment,
-            capitalAfter,
-        });
-
-        remainingCapital = capitalAfter;
-        if (amortization <= 0) break;
-        if (remainingCapital <= 0) break;
-    }
-
-    return table;
-};
-
-const calculateIrrMonthly = (cashflows: number[]): number | null => {
-    if (cashflows.length < 2) return null;
-
-    const npv = (rate: number): number => {
-        if (rate <= -1) return Number.NaN;
-        const step = 1 / (1 + rate);
-        let discountFactor = 1;
-        let sum = 0;
-
-        for (let t = 0; t < cashflows.length; t++) {
-            sum += cashflows[t] * discountFactor;
-            discountFactor *= step;
-        }
-
-        return sum;
-    };
-
-    const maxIterations = 100;
-    const tolerance = 1e-8;
-
-    let low = 0;
-    let high = 1;
-    let fLow = npv(low);
-    if (!Number.isFinite(fLow)) return null;
-    if (Math.abs(fLow) < tolerance) return low;
-
-    let fHigh = npv(high);
-    if (!Number.isFinite(fHigh)) return null;
-
-    // Expand high until we bracket a root or hit a limit.
-    while (fLow * fHigh > 0 && high < 100) {
-        high *= 2;
-        fHigh = npv(high);
-        if (!Number.isFinite(fHigh)) return null;
-    }
-
-    if (fLow * fHigh > 0) return null;
-
-    for (let i = 0; i < maxIterations; i++) {
-        const mid = (low + high) / 2;
-        const fMid = npv(mid);
-
-        if (!Number.isFinite(fMid)) return null;
-        if (Math.abs(fMid) < tolerance) return mid;
-
-        if (fLow * fMid > 0) {
-            low = mid;
-            fLow = fMid;
-        } else {
-            high = mid;
-            fHigh = fMid;
-        }
-    }
-
-    return (low + high) / 2;
-};
-
 const formatPercent = (value: number): string =>
     new Intl.NumberFormat("fr-FR", {
         style: "percent",
@@ -316,6 +159,9 @@ const formatPercent = (value: number): string =>
 export default function LoanCapacity() {
     const [insuranceHelpOpen, setInsuranceHelpOpen] = useState(false);
     const [guaranteeHelpOpen, setGuaranteeHelpOpen] = useState(false);
+
+    const insuranceHelpId = "insurance-help";
+    const guaranteeHelpId = "guarantee-help";
 
     const form = useForm({
         mode: "controlled",
@@ -372,13 +218,13 @@ export default function LoanCapacity() {
         if (maxMonthlyInstallment <= 0) return 0;
 
         if (insuranceMode === "rate") {
-            return calculateMaxPrincipalWithInsuranceRate(maxMonthlyInstallment, interestRate, insuranceRateAnnual, totalMonths);
+            return calculateMaxPrincipalWithInsuranceRate(maxMonthlyInstallment, interestRate, insuranceRateAnnual, totalMonths, insuranceBasis);
         }
 
         const creditMonthlyInstallment = Math.max(maxMonthlyInstallment - insuranceMonthly, 0);
         if (creditMonthlyInstallment <= 0) return 0;
         return calculateLoanPrincipalWithSingleRate(creditMonthlyInstallment, interestRate, totalMonths);
-    }, [maxMonthlyInstallment, insuranceMode, insuranceMonthly, insuranceRateAnnual, interestRate, totalMonths]);
+    }, [maxMonthlyInstallment, insuranceMode, insuranceMonthly, insuranceRateAnnual, interestRate, totalMonths, insuranceBasis]);
 
     const creditMonthlyInstallment = useMemo(() => {
         if (totalMonths <= 0 || maxLoanPrincipal <= 0) return 0;
@@ -433,7 +279,7 @@ export default function LoanCapacity() {
         const totalRepaid = totalCreditRepaid + totalInsurance;
         const totalCost = totalInterest + totalInsurance;
         const totalCostIncludingFees = totalCost + guaranteeFeeApplied;
-        const totalPaidIncludingFees = totalRepaid + (guaranteePayment === "upfront" ? guaranteeFeeApplied : 0);
+        const totalPaidIncludingFees = totalRepaid + guaranteeFeeApplied;
 
         return {
             months: amortizationTable.length,
@@ -446,7 +292,7 @@ export default function LoanCapacity() {
             totalCostIncludingFees,
             totalPaidIncludingFees,
         };
-    }, [amortizationTable, insurancePerMonth, guaranteeFeeApplied, guaranteePayment]);
+    }, [amortizationTable, insurancePerMonth, guaranteeFeeApplied]);
 
     const annualEffectiveRate = useMemo(() => {
         if (maxLoanPrincipal <= 0 || amortizationTable.length === 0) return null;
@@ -471,7 +317,7 @@ export default function LoanCapacity() {
     }, [maxLoanPrincipal, amortizationTable, guaranteeFeeApplied]);
 
     return (
-        <Container size={"md"}>
+        <Container size={"md"} id="loan-capacity">
             <Flex direction={"column"} gap="2rem" align={"center"}>
                 <Title order={1} ta={"center"} my="lg">
                     Calculer votre capacité d’emprunt
@@ -523,13 +369,18 @@ export default function LoanCapacity() {
                                     Choisissez l’option selon l’information dont vous disposez (montant ou taux).
                                 </Text>
 
-                                <UnstyledButton onClick={() => setInsuranceHelpOpen((v) => !v)}>
+                                <UnstyledButton
+                                    type="button"
+                                    onClick={() => setInsuranceHelpOpen((v) => !v)}
+                                    aria-expanded={insuranceHelpOpen}
+                                    aria-controls={insuranceHelpId}
+                                >
                                     <Text component="span" size="sm" c="dimmed" style={{ textDecoration: "underline" }}>
                                         <IconInfoCircle size={"14px"} /> Comment choisir ?
                                     </Text>
                                 </UnstyledButton>
 
-                                <Collapse in={insuranceHelpOpen}>
+                                <Collapse in={insuranceHelpOpen} id={insuranceHelpId}>
                                     <Box mt={6}>
                                         <Text size="sm">
                                             <strong>Prime mensuelle</strong> : si vous connaissez un montant en €/mois (devis/contrat).
@@ -596,13 +447,18 @@ export default function LoanCapacity() {
                                     La garantie protège la banque. Les frais associés peuvent impacter le TAEG.
                                 </Text>
 
-                                <UnstyledButton onClick={() => setGuaranteeHelpOpen((v) => !v)}>
+                                <UnstyledButton
+                                    type="button"
+                                    onClick={() => setGuaranteeHelpOpen((v) => !v)}
+                                    aria-expanded={guaranteeHelpOpen}
+                                    aria-controls={guaranteeHelpId}
+                                >
                                     <Text component="span" size="sm" c="dimmed" style={{ textDecoration: "underline" }}>
                                         <IconInfoCircle size={"14px"} /> Comment choisir ?
                                     </Text>
                                 </UnstyledButton>
 
-                                <Collapse in={guaranteeHelpOpen}>
+                                <Collapse in={guaranteeHelpOpen} id={guaranteeHelpId}>
                                     <Box mt={6}>
                                         <Text size="sm">
                                             <strong>Caution</strong> : garantie via un organisme ; coût et modalités selon dossier/organisme.
@@ -635,22 +491,25 @@ export default function LoanCapacity() {
 
                                         <Radio.Group label="Paiement" key={form.key("guaranteePayment")} {...form.getInputProps("guaranteePayment")}>
                                             <Group mt={8}>
-                                                <Radio value="upfront" label="Payés comptant" description="Payés au départ." />
-                                                <Radio value="financed" label="Financés" description="Déduits du montant débloqué." />
+                                                <Radio value="upfront" label="Payés comptant" description="Payés au départ (hors prêt)." />
+                                                <Radio
+                                                    value="financed"
+                                                    label="Financés"
+                                                    description="Payés au départ via le prêt (réduit le montant net débloqué)."
+                                                />
                                             </Group>
                                         </Radio.Group>
                                     </Flex>
                                 )}
 
                                 <Text size="xs" c="dimmed" mt={6}>
-                                    Les frais de garantie sont inclus dans le TAEG (paiement au départ).
+                                    Les frais de garantie sont inclus dans le TAEG (modélisés comme payés au départ).
                                 </Text>
                             </Box>
 
                             <Flex direction="column" w="100%">
                                 <InputLabel size="sm">Durée (années)</InputLabel>
                                 <Slider
-                                    defaultValue={25}
                                     restrictToMarks
                                     min={1}
                                     max={25}
@@ -692,6 +551,11 @@ export default function LoanCapacity() {
                 {maxLoanPrincipal > 0 && (
                     <Box w={{ base: "100%", sm: "90%" }} px={{ base: "md", sm: 0 }}>
                         <h2>Résultats</h2>
+                        <Text size="xs" c="dimmed" mt={6}>
+                            Hypothèses (pédagogiques) : mensualités constantes, taux nominal annuel converti en taux mensuel par division par 12, budget mensuel
+                            traité comme un plafond (mensualité crédit + assurance). TAEG estimé via un calcul d’IRR sur des flux mensuels, avec frais modélisés
+                            comme payés au départ.
+                        </Text>
                         <p>
                             <strong>Mensualité totale maximale (budget) :</strong> {formatCurrency(maxMonthlyInstallment)}
                         </p>
@@ -711,12 +575,12 @@ export default function LoanCapacity() {
                         </p>
                         {guaranteeType !== "none" && guaranteePayment === "upfront" && (
                             <p>
-                                <strong>Frais de garantie à payer au départ :</strong> {formatCurrency(guaranteeFeeApplied)}
+                                <strong>Frais de garantie à payer au départ (comptant) :</strong> {formatCurrency(guaranteeFeeApplied)}
                             </p>
                         )}
                         {guaranteeType !== "none" && guaranteePayment === "financed" && (
                             <p>
-                                <strong>Montant disponible (après frais financés) :</strong> {formatCurrency(netProjectAmount)}
+                                <strong>Montant disponible pour le projet (après frais financés) :</strong> {formatCurrency(netProjectAmount)}
                             </p>
                         )}
                         <p>
