@@ -6,12 +6,16 @@ import {
     Button,
     Collapse,
     Container,
+    Divider,
     Flex,
     Group,
     InputLabel,
     NumberInput,
+    Paper,
     Radio,
+    SimpleGrid,
     Slider,
+    Stack,
     Table,
     Text,
     Title,
@@ -550,110 +554,281 @@ export default function LoanCapacity() {
 
                 {maxLoanPrincipal > 0 && (
                     <Box w={{ base: "100%", sm: "90%" }} px={{ base: "md", sm: 0 }}>
-                        <h2>Résultats</h2>
-                        <Text size="xs" c="dimmed" mt={6}>
-                            Hypothèses (pédagogiques) : mensualités constantes, taux nominal annuel converti en taux mensuel par division par 12, budget mensuel
-                            traité comme un plafond (mensualité crédit + assurance). TAEG estimé via un calcul d’IRR sur des flux mensuels, avec frais modélisés
-                            comme payés au départ.
-                        </Text>
-                        <p>
-                            <strong>Mensualité totale maximale (budget) :</strong> {formatCurrency(maxMonthlyInstallment)}
-                        </p>
-                        <p>
-                            <strong>Assurance mensuelle :</strong>{" "}
-                            {insurancePerMonth.length === 0
-                                ? formatCurrency(0)
-                                : insuranceBasis === "remaining" && insuranceMode === "rate"
-                                  ? `${formatCurrency(insurancePerMonth[0] || 0)} (mois 1, puis décroissante)`
-                                  : formatCurrency(insurancePerMonth[0] || 0)}
-                        </p>
-                        <p>
-                            <strong>Mensualité crédit (hors assurance) :</strong> {formatCurrency(creditMonthlyInstallment)}
-                        </p>
-                        <p>
-                            <strong>Capacité d’emprunt maximale :</strong> {formatCurrency(maxLoanPrincipal)}
-                        </p>
-                        {guaranteeType !== "none" && guaranteePayment === "upfront" && (
-                            <p>
-                                <strong>Frais de garantie à payer au départ (comptant) :</strong> {formatCurrency(guaranteeFeeApplied)}
-                            </p>
-                        )}
-                        {guaranteeType !== "none" && guaranteePayment === "financed" && (
-                            <p>
-                                <strong>Montant disponible pour le projet (après frais financés) :</strong> {formatCurrency(netProjectAmount)}
-                            </p>
-                        )}
-                        <p>
-                            <strong>Total remboursé (crédit + assurance) :</strong> {formatCurrency(totals.totalRepaid)}
-                        </p>
-                        {guaranteeType !== "none" && (
-                            <p>
-                                <strong>Total payé (crédit + assurance + frais) :</strong> {formatCurrency(totals.totalPaidIncludingFees)}
-                            </p>
-                        )}
-                        <p>
-                            <strong>Coût du crédit (intérêts) :</strong> {formatCurrency(totals.totalInterest)}
-                        </p>
-                        <p>
-                            <strong>Coût de l’assurance :</strong> {formatCurrency(totals.totalInsurance)}
-                        </p>
-                        <p>
-                            <strong>Coût total (intérêts + assurance) :</strong> {formatCurrency(totals.totalCost)}
-                        </p>
-                        {guaranteeType !== "none" && (
-                            <p>
-                                <strong>Coût total (intérêts + assurance + frais) :</strong> {formatCurrency(totals.totalCostIncludingFees)}
-                            </p>
-                        )}
-                        <p>
-                            <strong>TAEG (avec assurance) :</strong> {annualEffectiveRate === null ? "—" : formatPercent(annualEffectiveRate)}
-                        </p>
-                        <p>
-                            <strong>TAEG (hors assurance) :</strong>{" "}
-                            {annualEffectiveRateWithoutInsurance === null ? "—" : formatPercent(annualEffectiveRateWithoutInsurance)}
-                        </p>
+                        <Paper withBorder radius="md" p="lg" component="section" aria-label="Résultats" aria-live="polite">
+                            <Group justify="space-between" align="flex-end" gap="xs">
+                                <Title order={2}>Résultats</Title>
+                                <Text size="sm" c="dimmed">
+                                    Durée : {durationYears} ans • Taux : {interestRate}%
+                                    {insuranceMode === "rate" ? ` • Assurance : ${insuranceRateAnnual}%/an` : ""}
+                                </Text>
+                            </Group>
 
-                        <Accordion>
-                            <Accordion.Item value="amortization" mt={16}>
-                                <Accordion.Control p={0}>
-                                    <strong>Tableau d’amortissement :</strong>
-                                </Accordion.Control>
-                                <Accordion.Panel>
-                                    <Table.ScrollContainer minWidth={500}>
-                                        <Table striped highlightOnHover withTableBorder withColumnBorders w={"100%"}>
-                                            <Table.Thead>
-                                                <Table.Tr>
-                                                    <Table.Th>Mois</Table.Th>
-                                                    <Table.Th>Capital initial</Table.Th>
-                                                    <Table.Th>Intérêts</Table.Th>
-                                                    <Table.Th>Amortissement</Table.Th>
-                                                    <Table.Th>Mensualité (crédit)</Table.Th>
-                                                    <Table.Th>Assurance</Table.Th>
-                                                    <Table.Th>Total</Table.Th>
-                                                    <Table.Th>Capital restant dû</Table.Th>
-                                                </Table.Tr>
-                                            </Table.Thead>
-                                            <Table.Tbody>
-                                                {amortizationTable.map((row) => (
-                                                    <Table.Tr key={row.month}>
-                                                        <Table.Td align="right">{row.month}</Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(row.capitalBefore)}</Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(row.interest)}</Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(row.amortization)}</Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(row.installment)}</Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(insurancePerMonth[row.month - 1] || 0)}</Table.Td>
-                                                        <Table.Td align="right">
-                                                            {formatCurrency(row.installment + (insurancePerMonth[row.month - 1] || 0))}
+                            <Divider my="md" />
+
+                            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+                                <Paper withBorder radius="md" p="md">
+                                    <Stack gap={2}>
+                                        <Text size="xs" c="dimmed">
+                                            Capacité d’emprunt maximale
+                                        </Text>
+                                        <Text fw={700} size="xl">
+                                            {formatCurrency(maxLoanPrincipal)}
+                                        </Text>
+                                    </Stack>
+                                </Paper>
+
+                                <Paper withBorder radius="md" p="md">
+                                    <Stack gap={2}>
+                                        <Text size="xs" c="dimmed">
+                                            Budget mensuel max (crédit + assurance)
+                                        </Text>
+                                        <Text fw={600} size="lg">
+                                            {formatCurrency(maxMonthlyInstallment)}
+                                        </Text>
+                                    </Stack>
+                                </Paper>
+
+                                <Paper withBorder radius="md" p="md">
+                                    <Stack gap={2}>
+                                        <Text size="xs" c="dimmed">
+                                            Mensualité crédit (hors assurance)
+                                        </Text>
+                                        <Text fw={600} size="lg">
+                                            {formatCurrency(creditMonthlyInstallment)}
+                                        </Text>
+                                    </Stack>
+                                </Paper>
+
+                                <Paper withBorder radius="md" p="md">
+                                    <Stack gap={2}>
+                                        <Text size="xs" c="dimmed">
+                                            Assurance
+                                        </Text>
+                                        <Text fw={600} size="lg">
+                                            {insurancePerMonth.length === 0
+                                                ? formatCurrency(0)
+                                                : insuranceBasis === "remaining" && insuranceMode === "rate"
+                                                  ? `${formatCurrency(insurancePerMonth[0] || 0)} (mois 1, puis décroissante)`
+                                                  : formatCurrency(insurancePerMonth[0] || 0)}
+                                        </Text>
+                                    </Stack>
+                                </Paper>
+
+                                <Paper withBorder radius="md" p="md">
+                                    <Stack gap={2}>
+                                        <Text size="xs" c="dimmed">
+                                            {guaranteeType !== "none" && guaranteePayment === "financed" ? "Montant net disponible" : "TAEG (avec assurance)"}
+                                        </Text>
+                                        <Text fw={600} size="lg">
+                                            {guaranteeType !== "none" && guaranteePayment === "financed"
+                                                ? formatCurrency(netProjectAmount)
+                                                : annualEffectiveRate === null
+                                                  ? "—"
+                                                  : formatPercent(annualEffectiveRate)}
+                                        </Text>
+                                    </Stack>
+                                </Paper>
+                            </SimpleGrid>
+
+                            <Accordion mt="md">
+                                {guaranteeType !== "none" && (
+                                    <Accordion.Item value="fees">
+                                        <Accordion.Control>
+                                            <Text fw={600}>Frais & montant net</Text>
+                                        </Accordion.Control>
+                                        <Accordion.Panel>
+                                            <Table withTableBorder>
+                                                <Table.Tbody>
+                                                    <Table.Tr>
+                                                        <Table.Td>
+                                                            <Text size="sm">Frais de garantie</Text>
                                                         </Table.Td>
-                                                        <Table.Td align="right">{formatCurrency(row.capitalAfter)}</Table.Td>
+                                                        <Table.Td align="right">
+                                                            <Text size="sm" fw={600}>
+                                                                {formatCurrency(guaranteeFeeApplied)}
+                                                            </Text>
+                                                        </Table.Td>
                                                     </Table.Tr>
-                                                ))}
+                                                    <Table.Tr>
+                                                        <Table.Td>
+                                                            <Text size="sm">Paiement</Text>
+                                                        </Table.Td>
+                                                        <Table.Td align="right">
+                                                            <Text size="sm" fw={600}>
+                                                                {guaranteePayment === "upfront" ? "Au départ (comptant)" : "Au départ (via le prêt)"}
+                                                            </Text>
+                                                        </Table.Td>
+                                                    </Table.Tr>
+                                                    {guaranteePayment === "financed" && (
+                                                        <Table.Tr>
+                                                            <Table.Td>
+                                                                <Text size="sm">Montant net disponible pour le projet</Text>
+                                                            </Table.Td>
+                                                            <Table.Td align="right">
+                                                                <Text size="sm" fw={600}>
+                                                                    {formatCurrency(netProjectAmount)}
+                                                                </Text>
+                                                            </Table.Td>
+                                                        </Table.Tr>
+                                                    )}
+                                                </Table.Tbody>
+                                            </Table>
+                                        </Accordion.Panel>
+                                    </Accordion.Item>
+                                )}
+
+                                <Accordion.Item value="costs">
+                                    <Accordion.Control>
+                                        <Text fw={600}>Coûts sur la durée</Text>
+                                    </Accordion.Control>
+                                    <Accordion.Panel>
+                                        <Table withTableBorder>
+                                            <Table.Tbody>
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">Total remboursé (crédit + assurance)</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {formatCurrency(totals.totalRepaid)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
+                                                {guaranteeType !== "none" && (
+                                                    <Table.Tr>
+                                                        <Table.Td>
+                                                            <Text size="sm">Total payé (crédit + assurance + frais)</Text>
+                                                        </Table.Td>
+                                                        <Table.Td align="right">
+                                                            <Text size="sm" fw={600}>
+                                                                {formatCurrency(totals.totalPaidIncludingFees)}
+                                                            </Text>
+                                                        </Table.Td>
+                                                    </Table.Tr>
+                                                )}
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">Intérêts</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {formatCurrency(totals.totalInterest)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">Assurance</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {formatCurrency(totals.totalInsurance)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">Coût total (intérêts + assurance)</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {formatCurrency(totals.totalCost)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
+                                                {guaranteeType !== "none" && (
+                                                    <Table.Tr>
+                                                        <Table.Td>
+                                                            <Text size="sm">Coût total (intérêts + assurance + frais)</Text>
+                                                        </Table.Td>
+                                                        <Table.Td align="right">
+                                                            <Text size="sm" fw={600}>
+                                                                {formatCurrency(totals.totalCostIncludingFees)}
+                                                            </Text>
+                                                        </Table.Td>
+                                                    </Table.Tr>
+                                                )}
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">TAEG (avec assurance)</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {annualEffectiveRate === null ? "—" : formatPercent(annualEffectiveRate)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
+                                                <Table.Tr>
+                                                    <Table.Td>
+                                                        <Text size="sm">TAEG (hors assurance)</Text>
+                                                    </Table.Td>
+                                                    <Table.Td align="right">
+                                                        <Text size="sm" fw={600}>
+                                                            {annualEffectiveRateWithoutInsurance === null
+                                                                ? "—"
+                                                                : formatPercent(annualEffectiveRateWithoutInsurance)}
+                                                        </Text>
+                                                    </Table.Td>
+                                                </Table.Tr>
                                             </Table.Tbody>
                                         </Table>
-                                    </Table.ScrollContainer>
-                                </Accordion.Panel>
-                            </Accordion.Item>
-                        </Accordion>
+                                    </Accordion.Panel>
+                                </Accordion.Item>
+
+                                <Accordion.Item value="assumptions">
+                                    <Accordion.Control>
+                                        <Text fw={600}>Hypothèses (pédagogiques)</Text>
+                                    </Accordion.Control>
+                                    <Accordion.Panel>
+                                        <Text size="sm" c="dimmed">
+                                            Mensualités constantes, taux nominal annuel converti en taux mensuel par division par 12, budget mensuel traité
+                                            comme un plafond (mensualité crédit + assurance). TAEG estimé via un calcul d’IRR sur des flux mensuels, avec frais
+                                            modélisés comme payés au départ.
+                                        </Text>
+                                    </Accordion.Panel>
+                                </Accordion.Item>
+
+                                <Accordion.Item value="amortization">
+                                    <Accordion.Control>
+                                        <Text fw={600}>Tableau d’amortissement</Text>
+                                    </Accordion.Control>
+                                    <Accordion.Panel>
+                                        <Table.ScrollContainer minWidth={500}>
+                                            <Table striped highlightOnHover withTableBorder withColumnBorders w={"100%"}>
+                                                <Table.Thead>
+                                                    <Table.Tr>
+                                                        <Table.Th>Mois</Table.Th>
+                                                        <Table.Th>Capital initial</Table.Th>
+                                                        <Table.Th>Intérêts</Table.Th>
+                                                        <Table.Th>Amortissement</Table.Th>
+                                                        <Table.Th>Mensualité (crédit)</Table.Th>
+                                                        <Table.Th>Assurance</Table.Th>
+                                                        <Table.Th>Total</Table.Th>
+                                                        <Table.Th>Capital restant dû</Table.Th>
+                                                    </Table.Tr>
+                                                </Table.Thead>
+                                                <Table.Tbody>
+                                                    {amortizationTable.map((row) => (
+                                                        <Table.Tr key={row.month}>
+                                                            <Table.Td align="right">{row.month}</Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(row.capitalBefore)}</Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(row.interest)}</Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(row.amortization)}</Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(row.installment)}</Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(insurancePerMonth[row.month - 1] || 0)}</Table.Td>
+                                                            <Table.Td align="right">
+                                                                {formatCurrency(row.installment + (insurancePerMonth[row.month - 1] || 0))}
+                                                            </Table.Td>
+                                                            <Table.Td align="right">{formatCurrency(row.capitalAfter)}</Table.Td>
+                                                        </Table.Tr>
+                                                    ))}
+                                                </Table.Tbody>
+                                            </Table>
+                                        </Table.ScrollContainer>
+                                    </Accordion.Panel>
+                                </Accordion.Item>
+                            </Accordion>
+                        </Paper>
                     </Box>
                 )}
             </Flex>
